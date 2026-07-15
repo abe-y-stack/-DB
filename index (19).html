@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>在庫 3D・棚卸</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #FFFFFF;
+  --surface: #F6F6F4;
+  --surface2: #EDEDEA;
+  --border: rgba(0,0,0,0.09);
+  --t1: #111111;
+  --t2: #6E6E73;
+  --t3: #AEAEB2;
+  --ok: #4C7A5A;
+  --warn: #B0713C;
+  --bad: #A4453F;
+  --nav-h: 62px;
+  --head-h: 52px;
+  --radius: 14px;
+  font-size: 16px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--bg); color: var(--t1);
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; border: none; background: none; cursor: pointer; color: inherit; }
+input, select { font-family: inherit; font-size: 16px; }
+
+/* ── Header ── */
+#header {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--head-h);
+  display: flex; align-items: center; gap: 10px; padding: 0 14px;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border); z-index: 50;
+}
+#header .title { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+#conn { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--t2); }
+#conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--t3); }
+#conn.on .dot { background: var(--ok); }
+#header .sp { flex: 1; }
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+}
+.icon-btn svg { width: 17px; height: 17px; stroke: var(--t1); stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn:active { background: var(--surface2); }
+
+/* ── Panels ── */
+.panel {
+  position: fixed; top: var(--head-h); bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  left: 0; right: 0; display: none; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+.panel.active { display: block; }
+#panel-3d { overflow: hidden; }
+#cv-wrap { position: absolute; inset: 0; }
+#cv { width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* 3D info card */
+#info-card {
+  position: absolute; left: 12px; right: 12px; bottom: 12px;
+  background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; display: none; align-items: center; gap: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08); z-index: 5;
+}
+#info-card.show { display: flex; }
+#info-card .swatch { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
+#info-card .meta { flex: 1; min-width: 0; }
+#info-card .nm { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#info-card .cd { font-size: 11px; color: var(--t2); margin-top: 1px; }
+#info-card .stk { text-align: right; }
+#info-card .stk b { font-size: 19px; font-weight: 700; }
+#info-card .stk span { font-size: 11px; color: var(--t2); }
+#info-card .edit { background: var(--t1); color: #fff; border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+
+#drag-hint {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(17,17,17,0.85); color: #fff; font-size: 11px;
+  padding: 6px 14px; border-radius: 999px; display: none; z-index: 5; white-space: nowrap;
+}
+#save-pill {
+  position: absolute; top: 10px; right: 10px; z-index: 6;
+  background: var(--t1); color: #fff; border-radius: 999px; padding: 8px 16px;
+  font-size: 12px; font-weight: 600; display: none;
+}
+
+/* ── Generic list ── */
+.p-inner { padding: 14px 14px 30px; max-width: 760px; margin: 0 auto; }
+.sec-label { font-size: 11px; font-weight: 700; color: var(--t2); letter-spacing: 0.08em; margin: 18px 4px 8px; }
+.card-list { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+.row {
+  display: flex; align-items: center; gap: 11px; padding: 12px 14px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.row:last-child { border-bottom: none; }
+.row:active { background: var(--surface2); }
+.row .swatch { width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0; }
+.row .meta { flex: 1; min-width: 0; }
+.row .nm { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .cd { font-size: 11px; color: var(--t2); margin-top: 1px; }
+.row .num { text-align: right; flex-shrink: 0; }
+.row .num b { font-size: 17px; font-weight: 700; }
+.row .num span { font-size: 10px; color: var(--t2); display: block; margin-top: -1px; }
+.row .chev { color: var(--t3); font-size: 15px; flex-shrink: 0; }
+.badge-3d { font-size: 10px; background: var(--surface2); border-radius: 6px; padding: 2px 6px; color: var(--t2); flex-shrink: 0; }
+
+/* search bar */
+.s-bar {
+  display: flex; align-items: center; gap: 8px; background: var(--surface);
+  border-radius: 12px; padding: 9px 12px; margin-bottom: 12px;
+}
+.s-bar svg { width: 15px; height: 15px; stroke: var(--t2); stroke-width: 2.2; fill: none; flex-shrink: 0; }
+.s-bar input { flex: 1; border: none; background: none; outline: none; font-size: 15px; }
+
+/* pill buttons */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--t1); color: #fff; border-radius: 999px;
+  padding: 12px 20px; font-size: 14px; font-weight: 600;
+}
+.pill:active { opacity: 0.75; }
+.pill.ghost { background: var(--surface); color: var(--t1); }
+.pill.full { width: 100%; }
+.pill:disabled { opacity: 0.35; }
+.pill.danger { background: #fff; color: var(--bad); border: 1px solid var(--border); }
+
+/* ── 棚卸 panel ── */
+#scan-idle { text-align: center; padding: 46px 20px 20px; }
+#scan-idle .big { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+#scan-idle .sub { font-size: 13px; color: var(--t2); line-height: 1.7; margin-bottom: 24px; }
+
+#scan-live { display: none; }
+#cam-wrap {
+  position: relative; border-radius: var(--radius); overflow: hidden;
+  background: #111; aspect-ratio: 4 / 3; margin-bottom: 12px;
+}
+#cam { width: 100%; height: 100%; object-fit: cover; }
+#cam-frame {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+#cam-frame .box { width: 58%; aspect-ratio: 1; border: 2px solid rgba(255,255,255,0.85); border-radius: 16px; }
+#cam-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+#cam-off-msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #999; font-size: 13px; }
+
+.count-head { display: flex; align-items: baseline; gap: 8px; margin: 16px 4px 8px; }
+.count-head .t { font-size: 11px; font-weight: 700; color: var(--t2); letter-spacing: 0.08em; flex: 1; }
+.count-head .n { font-size: 12px; color: var(--t2); }
+
+.tally-row { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+.tally-row:last-child { border-bottom: none; }
+.tally-row .meta { flex: 1; min-width: 0; }
+.tally-row .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tally-row .cd { font-size: 10px; color: var(--t2); }
+.tally-row .cnt { font-size: 16px; font-weight: 700; }
+.tally-row .vs { font-size: 11px; color: var(--t2); }
+.diff-chip { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 2px 7px; }
+.diff-chip.zero { background: var(--surface2); color: var(--t2); }
+.diff-chip.plus { background: rgba(76,122,90,0.13); color: var(--ok); }
+.diff-chip.minus { background: rgba(164,69,63,0.12); color: var(--bad); }
+
+.hist-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.hist-row:last-child { border-bottom: none; }
+.hist-row .m { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--t2); }
+.hist-row .q { font-weight: 700; }
+.hist-row .del { color: var(--bad); font-size: 12px; padding: 4px 8px; }
+
+/* ── Sheets(modal) ── */
+#sheet-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 90;
+  opacity: 0; pointer-events: none; transition: opacity 0.22s;
+}
+#sheet-bg.show { opacity: 1; pointer-events: auto; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 95;
+  background: var(--bg); border-radius: 20px 20px 0 0;
+  max-height: 88%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  transform: translateY(105%); transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+  padding: 10px 18px calc(26px + env(safe-area-inset-bottom));
+  max-width: 640px; margin: 0 auto;
+}
+.sheet.show { transform: translateY(0); }
+.sheet .handle { width: 38px; height: 5px; border-radius: 3px; background: var(--surface2); margin: 4px auto 14px; }
+.sheet h2 { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+.f-group { margin-bottom: 14px; }
+.f-label { font-size: 11px; font-weight: 700; color: var(--t2); letter-spacing: 0.06em; margin-bottom: 6px; }
+.f-input {
+  width: 100%; border: 1px solid var(--border); border-radius: 11px;
+  padding: 11px 13px; font-size: 15px; background: var(--bg); outline: none;
+}
+.f-input:focus { border-color: var(--t1); }
+.f-hint { font-size: 11px; color: var(--t2); margin-top: 5px; line-height: 1.6; }
+.f-row { display: flex; gap: 10px; }
+.f-row > * { flex: 1; }
+.swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.swatches .sw { width: 30px; height: 30px; border-radius: 9px; border: 2px solid transparent; }
+.swatches .sw.sel { border-color: var(--t1); }
+
+.box-edit { background: var(--surface); border-radius: 12px; padding: 11px 12px; margin-bottom: 9px; }
+.box-edit .be-head { display: flex; align-items: center; margin-bottom: 8px; }
+.box-edit .be-head .t { font-size: 12px; font-weight: 700; flex: 1; }
+.box-edit .be-head .rm { color: var(--bad); font-size: 12px; padding: 2px 6px; }
+.box-edit .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.box-edit .cell label { display: block; font-size: 10px; color: var(--t2); margin-bottom: 3px; }
+.box-edit .cell input {
+  width: 100%; border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 8px; font-size: 14px; outline: none; background: var(--bg);
+}
+
+/* Summary modal */
+.sum-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+.sum-table th { text-align: right; font-size: 10px; color: var(--t2); font-weight: 600; padding: 6px 6px; border-bottom: 1px solid var(--border); }
+.sum-table th:first-child { text-align: left; }
+.sum-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: right; }
+.sum-table td:first-child { text-align: left; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.check-line { display: flex; align-items: center; gap: 9px; font-size: 13px; margin: 6px 2px 16px; }
+.check-line input { width: 18px; height: 18px; accent-color: #111; }
+
+/* ── Label print items ── */
+.label-card {
+  background: var(--surface); border-radius: 12px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 11px; margin-bottom: 8px;
+}
+.label-card input[type=checkbox] { width: 19px; height: 19px; accent-color: #111; flex-shrink: 0; }
+.label-card .meta { flex: 1; min-width: 0; }
+.label-card .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label-card .sub { font-size: 11px; color: var(--t2); margin-top: 1px; }
+.label-card .void { font-size: 11px; color: var(--bad); padding: 5px 8px; flex-shrink: 0; }
+
+/* ── Bottom nav ── */
+#nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(255,255,255,0.94); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  display: flex;
+}
+.tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--t3); }
+.tab svg { width: 21px; height: 21px; stroke: currentColor; stroke-width: 1.9; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.tab span { font-size: 10px; font-weight: 600; }
+.tab.on { color: var(--t1); }
+
+/* toast */
+#toast {
+  position: fixed; bottom: calc(var(--nav-h) + 22px); left: 50%; transform: translateX(-50%) translateY(8px);
+  background: rgba(17,17,17,0.92); color: #fff; font-size: 13px; font-weight: 500;
+  border-radius: 999px; padding: 10px 20px; z-index: 200; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all 0.25s;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* picker */
+.picker-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; }
+
+/* ── PC layout ── */
+#pc-side { display: none; }
+@media (min-width: 920px) {
+  #panel-3d #pc-side {
+    display: block; position: absolute; top: 0; left: 0; bottom: 0; width: 300px;
+    background: var(--bg); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 14px; z-index: 4;
+  }
+  #panel-3d #cv-wrap { left: 300px; }
+  #info-card { left: 314px; }
+}
+
+/* ── Print ── */
+#print-area { display: none; }
+@media print {
+  body > *:not(#print-area) { display: none !important; }
+  html, body { overflow: visible; height: auto; }
+  #print-area { display: block; }
+  .pl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .pl {
+    border: 1px dashed #999; padding: 5mm; display: flex; gap: 5mm; align-items: center;
+    break-inside: avoid; height: 40mm;
+  }
+  .pl .qr { width: 28mm; height: 28mm; flex-shrink: 0; }
+  .pl .qr img, .pl .qr canvas { width: 28mm !important; height: 28mm !important; }
+  .pl .tx { flex: 1; min-width: 0; }
+  .pl .tx .n { font-size: 10.5pt; font-weight: 700; line-height: 1.3; }
+  .pl .tx .c { font-size: 7.5pt; color: #555; margin-top: 1mm; }
+  .pl .tx .q { font-size: 14pt; font-weight: 800; margin-top: 1.5mm; }
+  .pl .tx .id { font-size: 6.5pt; color: #999; margin-top: 1mm; }
+}
+</style>
+</head>
+<body>
+
+<header id="header">
+  <div class="title">在庫 3D・棚卸</div>
+  <div id="conn"><div class="dot"></div><span id="conn-tx">未接続</span></div>
+  <div class="sp"></div>
+  <button class="icon-btn" onclick="reloadData()" title="再読込">
+    <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+  </button>
+  <button class="icon-btn" onclick="openSettings()" title="設定">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1Z"/></svg>
+  </button>
+</header>
+
+<!-- ═══ 3D ═══ -->
+<div class="panel active" id="panel-3d">
+  <div id="pc-side">
+    <div class="s-bar">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="side-search" placeholder="商品を検索" oninput="renderSideList()">
+    </div>
+    <div class="card-list" id="side-list"></div>
+  </div>
+  <div id="cv-wrap">
+    <canvas id="cv"></canvas>
+    <div id="drag-hint">選択中の箱をドラッグで移動できます</div>
+    <div id="save-pill">配置を保存中…</div>
+    <div id="info-card">
+      <div class="swatch" id="ic-sw"></div>
+      <div class="meta">
+        <div class="nm" id="ic-nm">—</div>
+        <div class="cd" id="ic-cd">—</div>
+      </div>
+      <div class="stk"><b id="ic-stk">—</b> <span id="ic-unit">個</span></div>
+      <button class="edit" onclick="editSelectedProduct()">編集</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 在庫一覧 ═══ -->
+<div class="panel" id="panel-list">
+  <div class="p-inner">
+    <div class="s-bar">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="list-search" placeholder="商品名・コードで検索" oninput="renderList()">
+    </div>
+    <div style="display:flex; gap:9px; margin-bottom:6px;">
+      <button class="pill ghost" style="flex:1" onclick="document.getElementById('csv-file').click()">CSVインポート</button>
+      <button class="pill ghost" style="flex:1" onclick="openProductEdit(null)">商品を追加</button>
+    </div>
+    <input type="file" id="csv-file" accept=".csv" style="display:none" onchange="importCsv(this.files[0])">
+    <div class="sec-label" id="list-count-label">商品</div>
+    <div class="card-list" id="list-el"></div>
+  </div>
+</div>
+
+<!-- ═══ 棚卸 ═══ -->
+<div class="panel" id="panel-count">
+  <div class="p-inner">
+    <div id="scan-idle">
+      <div class="big">棚卸を開始</div>
+      <div class="sub">ダンボールのQRラベルをスキャンすると<br>入数分が自動で加算されます</div>
+      <button class="pill full" onclick="startSession()">棚卸を開始する</button>
+      <div id="resume-box" style="display:none; margin-top:12px;">
+        <button class="pill ghost full" onclick="resumeSession()">前回の続きから再開</button>
+      </div>
+    </div>
+
+    <div id="scan-live">
+      <div id="cam-wrap">
+        <video id="cam" playsinline muted></video>
+        <div id="cam-frame"><div class="box"></div></div>
+        <div id="cam-flash"></div>
+        <div id="cam-off-msg">カメラ停止中</div>
+      </div>
+      <div style="display:flex; gap:9px;">
+        <button class="pill ghost" style="flex:1" id="cam-toggle" onclick="toggleCamera()">カメラ停止</button>
+        <button class="pill ghost" style="flex:1" onclick="manualAdd()">手入力で追加</button>
+      </div>
+
+      <div class="count-head"><div class="t">カウント状況（実数 / 理論）</div><div class="n" id="tally-n"></div></div>
+      <div class="card-list" id="tally-el"></div>
+
+      <div class="count-head"><div class="t">スキャン履歴</div></div>
+      <div class="card-list" id="hist-el"></div>
+
+      <div style="margin-top:20px; display:flex; flex-direction:column; gap:9px;">
+        <button class="pill full" onclick="openSummary()">棚卸を完了する</button>
+        <button class="pill danger full" onclick="cancelSession()">中断して破棄</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ラベル ═══ -->
+<div class="panel" id="panel-label">
+  <div class="p-inner">
+    <div class="sec-label">QRラベルを発行</div>
+    <div style="background:var(--surface); border-radius:var(--radius); padding:14px;">
+      <div class="f-group">
+        <div class="f-label">商品</div>
+        <button class="f-input" style="text-align:left; color:var(--t2);" id="lb-product-btn" onclick="pickProduct(p => setLabelProduct(p))">タップして商品を選択</button>
+      </div>
+      <div class="f-row">
+        <div class="f-group">
+          <div class="f-label">入数（1箱あたり）</div>
+          <input class="f-input" id="lb-qty" type="number" inputmode="numeric" min="1" placeholder="20">
+        </div>
+        <div class="f-group">
+          <div class="f-label">枚数（箱の数）</div>
+          <input class="f-input" id="lb-count" type="number" inputmode="numeric" min="1" value="1">
+        </div>
+      </div>
+      <button class="pill full" onclick="createLabelsAction()">発行して印刷プレビュー</button>
+      <div class="f-hint">スキャン1回で入数分が加算されます。ラベル1枚ごとに固有IDが付くため、同じ箱の二重スキャンは自動で弾かれます。</div>
+    </div>
+
+    <div class="sec-label">発行済みラベル</div>
+    <div class="s-bar">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="label-search" placeholder="商品名・コードで絞り込み" oninput="renderLabels()">
+    </div>
+    <button class="pill ghost full" id="print-sel-btn" style="margin-bottom:10px;" onclick="printSelectedLabels()">選択したラベルを印刷</button>
+    <div id="labels-el"></div>
+  </div>
+</div>
+
+<!-- ═══ Nav ═══ -->
+<nav id="nav">
+  <button class="tab on" data-tab="3d" onclick="switchTab('3d')">
+    <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
+    <span>3D</span>
+  </button>
+  <button class="tab" data-tab="list" onclick="switchTab('list')">
+    <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    <span>在庫</span>
+  </button>
+  <button class="tab" data-tab="count" onclick="switchTab('count')">
+    <svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
+    <span>棚卸</span>
+  </button>
+  <button class="tab" data-tab="label" onclick="switchTab('label')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14h1M14 20h1M18 18h3v3h-3z"/></svg>
+    <span>ラベル</span>
+  </button>
+</nav>
+
+<!-- ═══ Sheets ═══ -->
+<div id="sheet-bg" onclick="closeAllSheets()"></div>
+
+<!-- 商品編集 -->
+<div class="sheet" id="sheet-product">
+  <div class="handle"></div>
+  <h2 id="pe-title">商品を編集</h2>
+  <div class="f-group"><div class="f-label">商品名</div><input class="f-input" id="pe-name"></div>
+  <div class="f-row">
+    <div class="f-group"><div class="f-label">商品コード</div><input class="f-input" id="pe-code"></div>
+    <div class="f-group" style="max-width:110px;"><div class="f-label">単位</div><input class="f-input" id="pe-unit" placeholder="個"></div>
+  </div>
+  <div class="f-group"><div class="f-label">理論在庫（ネクストエンジン）</div><input class="f-input" id="pe-stock" type="number" inputmode="numeric"></div>
+  <div class="f-group"><div class="f-label">カラー</div><div class="swatches" id="pe-swatches"></div></div>
+  <div class="f-group">
+    <div class="f-label">3D配置（mm・部屋の左手前角が原点）</div>
+    <div id="pe-boxes"></div>
+    <button class="pill ghost full" onclick="addBoxToEditing()">箱を追加</button>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:9px; margin-top:16px;">
+    <button class="pill full" onclick="saveProductEdit()">保存</button>
+    <button class="pill danger full" id="pe-delete" onclick="deleteProductAction()">この商品を削除</button>
+  </div>
+</div>
+
+<!-- 商品ピッカー -->
+<div class="sheet" id="sheet-picker">
+  <div class="handle"></div>
+  <h2>商品を選択</h2>
+  <div class="s-bar">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input id="picker-search" placeholder="商品名・コードで検索" oninput="renderPicker()">
+  </div>
+  <div class="picker-list card-list" id="picker-list"></div>
+</div>
+
+<!-- 手入力数量 -->
+<div class="sheet" id="sheet-qty">
+  <div class="handle"></div>
+  <h2>数量を入力</h2>
+  <div class="f-group"><div class="f-label" id="qty-product-label">商品</div>
+    <input class="f-input" id="qty-input" type="number" inputmode="numeric" min="1" placeholder="数量">
+  </div>
+  <button class="pill full" onclick="confirmManualQty()">カウントに追加</button>
+</div>
+
+<!-- 棚卸サマリー -->
+<div class="sheet" id="sheet-summary">
+  <div class="handle"></div>
+  <h2>棚卸結果</h2>
+  <div style="max-height:38vh; overflow-y:auto;">
+    <table class="sum-table">
+      <thead><tr><th>商品</th><th>理論</th><th>実数</th><th>差異</th></tr></thead>
+      <tbody id="sum-body"></tbody>
+    </table>
+  </div>
+  <label class="check-line"><input type="checkbox" id="sum-include-zero">カウントしていない商品も「実数0」として含める</label>
+  <div style="display:flex; flex-direction:column; gap:9px;">
+    <button class="pill full" onclick="finishSession(true)">保存して差異CSVを出力</button>
+    <button class="pill ghost full" onclick="finishSession(false)">記録のみ保存（CSVなし）</button>
+    <label class="check-line" style="margin:2px;"><input type="checkbox" id="sum-apply">このアプリの在庫数も実数で上書きする</label>
+  </div>
+</div>
+
+<!-- 設定 -->
+<div class="sheet" id="sheet-settings">
+  <div class="handle"></div>
+  <h2>設定</h2>
+  <div class="f-group">
+    <div class="f-label">GAS ウェブアプリURL</div>
+    <input class="f-input" id="st-url" placeholder="https://script.google.com/macros/s/…/exec">
+    <div class="f-hint">未設定の場合はこの端末内のみで動作します（データ共有なし）</div>
+  </div>
+  <div class="f-label" style="margin-bottom:6px;">部屋の寸法（mm）</div>
+  <div class="f-row">
+    <div class="f-group"><div class="f-label">幅</div><input class="f-input" id="st-w" type="number" value="6000"></div>
+    <div class="f-group"><div class="f-label">奥行</div><input class="f-input" id="st-d" type="number" value="6000"></div>
+    <div class="f-group"><div class="f-label">高さ</div><input class="f-input" id="st-h" type="number" value="2500"></div>
+  </div>
+  <button class="pill full" onclick="saveSettings()">保存して再接続</button>
+</div>
+
+<!-- 印刷エリア -->
+<div id="print-area"><div class="pl-grid" id="pl-grid"></div></div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+'use strict';
+
+/* ═══════════════ 状態 ═══════════════ */
+const LS = { url: 'zaiko.gasUrl', cache: 'zaiko.cache', session: 'zaiko.session' };
+const PALETTE = ['#5B7DA3','#7FA07C','#B8966E','#8A7A9B','#C08A6E','#7D8F8F','#B09A5C','#6E7B8A','#A96F6F','#6FA3A0','#9AA1A8','#A08A5E'];
+
+let state = { products: [], boxes: [], labels: [], config: {} };
+let gasUrl = localStorage.getItem(LS.url) || '';
+let session = null;          // 棚卸セッション {id, startedAt, scanned:{labelId:true}, items:[{productCode,labelId,qty,method,name}]}
+let dirty3d = false;
+let saveTimer = null;
+
+function roomDims() {
+  return {
+    w: Number(state.config.roomW) || 6000,
+    d: Number(state.config.roomD) || 6000,
+    h: Number(state.config.roomH) || 2500,
+  };
+}
+function prod(code) { return state.products.find(p => p.code === code); }
+function $(id) { return document.getElementById(id); }
+
+function toast(msg, ms = 2200) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._tm); t._tm = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/* ═══════════════ API ═══════════════ */
+async function api(action, payload = {}) {
+  if (!gasUrl) return localApi(action, payload);
+  if (action === 'getAll') {
+    const r = await fetch(gasUrl + '?action=getAll');
+    return r.json();
+  }
+  const r = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(Object.assign({ action }, payload)) });
+  return r.json();
+}
+
+/* 未接続時のローカル動作（この端末内のみ） */
+function localApi(action, p) {
+  switch (action) {
+    case 'getAll': return Promise.resolve(Object.assign({ ok: true }, state));
+    case 'saveProduct': {
+      const i = state.products.findIndex(x => x.code === p.product.code);
+      if (i >= 0) state.products[i] = Object.assign(state.products[i], p.product);
+      else state.products.push(p.product);
+      break;
+    }
+    case 'importProducts': {
+      p.products.forEach(n => {
+        const e = prod(n.code);
+        if (e) { e.name = n.name; e.stock = n.stock; }
+        else state.products.push(n);
+      });
+      break;
+    }
+    case 'deleteProduct':
+      state.products = state.products.filter(x => x.code !== p.code);
+      state.boxes = state.boxes.filter(b => b.productCode !== p.code);
+      break;
+    case 'saveBoxes': state.boxes = p.boxes; break;
+    case 'saveConfig': state.config = Object.assign(state.config, p.config); break;
+    case 'createLabels': {
+      const base = Date.now().toString(36).toUpperCase();
+      const created = [];
+      for (let i = 0; i < p.count; i++) {
+        const l = { labelId: 'L' + base + '-' + (i + 1), productCode: p.productCode, qty: p.qty, active: true };
+        state.labels.push(l); created.push(l);
+      }
+      cacheSave();
+      return Promise.resolve({ ok: true, labels: created });
+    }
+    case 'deactivateLabel':
+      state.labels = state.labels.filter(l => l.labelId !== p.labelId);
+      break;
+    case 'submitInventory':
+      if (p.apply) {
+        const totals = {};
+        p.items.forEach(it => totals[it.productCode] = (totals[it.productCode] || 0) + Number(it.qty));
+        state.products.forEach(pr => { if (totals[pr.code] !== undefined) pr.stock = totals[pr.code]; });
+      }
+      break;
+  }
+  cacheSave();
+  return Promise.resolve({ ok: true });
+}
+
+function cacheSave() {
+  localStorage.setItem(LS.cache, JSON.stringify(state));
+}
+function cacheLoad() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS.cache));
+    if (c && c.products) state = Object.assign(state, c);
+  } catch (e) {}
+}
+
+async function reloadData() {
+  if (!gasUrl) { toast('未接続（端末内モード）'); renderAll(); return; }
+  setConn(false, '同期中…');
+  try {
+    const r = await api('getAll');
+    if (!r.ok) throw new Error(r.error);
+    state.products = r.products || [];
+    state.boxes = (r.boxes || []).map(b => ({ ...b, x:+b.x, y:+b.y, z:+b.z, w:+b.w, h:+b.h, d:+b.d }));
+    state.labels = r.labels || [];
+    state.config = r.config || {};
+    state.products.forEach(p => p.stock = Number(p.stock) || 0);
+    cacheSave();
+    setConn(true, '接続済み');
+    renderAll();
+    toast('データを読み込みました');
+  } catch (e) {
+    setConn(false, '接続エラー');
+    toast('読み込みに失敗しました');
+    console.error(e);
+  }
+}
+function setConn(on, tx) {
+  $('conn').classList.toggle('on', on);
+  $('conn-tx').textContent = tx;
+}
+
+/* ═══════════════ タブ・シート ═══════════════ */
+function switchTab(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === id));
+  $('panel-' + (id === '3d' ? '3d' : id)).classList.add('active');
+  if (id === '3d') setTimeout(resize3d, 60);
+  if (id !== 'count' && camStream && !session) stopCamera();
+}
+function openSheet(id) { $('sheet-bg').classList.add('show'); $(id).classList.add('show'); }
+function closeAllSheets() {
+  $('sheet-bg').classList.remove('show');
+  document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
+}
+
+/* ═══════════════ 3D ═══════════════ */
+let scene, camera3, renderer, controls, raycaster, boxMeshes = [], roomGroup = null;
+let selectedBoxId = null, dragging = false, dragPlane = null, dragOffset = new THREE.Vector3();
+
+function mm2m(v) { return v / 1000; }
+
+function init3d() {
+  const cv = $('cv');
+  renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xffffff);
+
+  camera3 = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
+  controls = new THREE.OrbitControls(camera3, cv);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI / 2 - 0.02;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.4);
+  dl.position.set(4, 8, 5);
+  scene.add(dl);
+
+  raycaster = new THREE.Raycaster();
+
+  // capture-phase で先取りし、選択済みの箱の上ならドラッグ開始
+  cv.addEventListener('pointerdown', onPointerDown, true);
+  cv.addEventListener('pointermove', onPointerMove, true);
+  cv.addEventListener('pointerup', onPointerUp, true);
+
+  window.addEventListener('resize', resize3d);
+  resize3d();
+  buildRoom();
+  rebuildBoxes();
+  resetCamera();
+  animate();
+}
+
+function resetCamera() {
+  const R = roomDims();
+  const cx = 0, cz = 0;
+  camera3.position.set(mm2m(R.w) * 0.95, mm2m(R.h) * 1.5, mm2m(R.d) * 1.15);
+  controls.target.set(cx, mm2m(R.h) * 0.35, cz);
+  controls.update();
+}
+
+function buildRoom() {
+  if (roomGroup) scene.remove(roomGroup);
+  roomGroup = new THREE.Group();
+  const R = roomDims();
+  const W = mm2m(R.w), D = mm2m(R.d), H = mm2m(R.h);
+
+  // 床
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(W, D),
+    new THREE.MeshBasicMaterial({ color: 0xfafaf8 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.001;
+  roomGroup.add(floor);
+
+  // グリッド
+  const grid = new THREE.GridHelper(Math.max(W, D) * 2, Math.round(Math.max(W, D) * 2), 0xe4e4e0, 0xefefec);
+  grid.position.y = 0;
+  roomGroup.add(grid);
+
+  // 部屋の枠
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, D)),
+    new THREE.LineBasicMaterial({ color: 0xb9b9b4 })
+  );
+  edges.position.set(0, H / 2, 0);
+  roomGroup.add(edges);
+
+  scene.add(roomGroup);
+}
+
+function boxCenter(b) {
+  const R = roomDims();
+  return new THREE.Vector3(
+    mm2m(b.x + b.w / 2 - R.w / 2),
+    mm2m(b.y + b.h / 2),
+    mm2m(b.z + b.d / 2 - R.d / 2)
+  );
+}
+
+function rebuildBoxes() {
+  boxMeshes.forEach(m => { scene.remove(m); m.geometry.dispose(); });
+  boxMeshes = [];
+  state.boxes.forEach(b => {
+    const p = prod(b.productCode);
+    const col = new THREE.Color(p ? p.color : '#999');
+    const geo = new THREE.BoxGeometry(mm2m(b.w), mm2m(b.h), mm2m(b.d));
+    const mat = new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 0.6 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(boxCenter(b));
+    mesh.userData.boxId = b.id;
+    const edge = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: col.clone().multiplyScalar(0.65) })
+    );
+    mesh.add(edge);
+    scene.add(mesh);
+    boxMeshes.push(mesh);
+  });
+  applySelection();
+}
+
+function applySelection() {
+  boxMeshes.forEach(m => {
+    const sel = m.userData.boxId === selectedBoxId;
+    m.material.opacity = sel ? 0.92 : (selectedBoxId ? 0.35 : 0.6);
+  });
+  const b = state.boxes.find(x => x.id === selectedBoxId);
+  const card = $('info-card');
+  if (b) {
+    const p = prod(b.productCode) || {};
+    $('ic-sw').style.background = p.color || '#999';
+    $('ic-nm').textContent = p.name || b.productCode;
+    $('ic-cd').textContent = (p.code || '') + '　' + b.w + '×' + b.d + '×' + b.h + 'mm';
+    $('ic-stk').textContent = p.stock !== undefined ? p.stock : '—';
+    $('ic-unit').textContent = p.unit || '個';
+    card.classList.add('show');
+    $('drag-hint').style.display = 'block';
+  } else {
+    card.classList.remove('show');
+    $('drag-hint').style.display = 'none';
+  }
+}
+
+function pickBox(e) {
+  const cv = $('cv');
+  const r = cv.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera3);
+  const hits = raycaster.intersectObjects(boxMeshes, false);
+  return hits.length ? hits[0] : null;
+}
+
+let downPos = null;
+function onPointerDown(e) {
+  const hit = pickBox(e);
+  downPos = { x: e.clientX, y: e.clientY };
+  if (hit && hit.object.userData.boxId === selectedBoxId) {
+    // 2段階目: 選択済みの箱 → ドラッグ開始
+    e.stopImmediatePropagation();
+    $('cv').setPointerCapture(e.pointerId);
+    controls.enabled = false;
+    dragging = true;
+    const b = state.boxes.find(x => x.id === selectedBoxId);
+    dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.point.y);
+    dragOffset.copy(hit.point).sub(boxCenter(b));
+  }
+}
+function onPointerMove(e) {
+  if (!dragging) return;
+  e.stopImmediatePropagation();
+  const cv = $('cv');
+  const r = cv.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera3);
+  const pt = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(dragPlane, pt)) return;
+  pt.sub(dragOffset);
+  const b = state.boxes.find(x => x.id === selectedBoxId);
+  const R = roomDims();
+  b.x = Math.round(Math.min(Math.max((pt.x * 1000) + R.w / 2 - b.w / 2, 0), R.w - b.w));
+  b.z = Math.round(Math.min(Math.max((pt.z * 1000) + R.d / 2 - b.d / 2, 0), R.d - b.d));
+  const mesh = boxMeshes.find(m => m.userData.boxId === b.id);
+  if (mesh) mesh.position.copy(boxCenter(b));
+  dirty3d = true;
+}
+function onPointerUp(e) {
+  if (dragging) {
+    dragging = false;
+    controls.enabled = true;
+    scheduleBoxSave();
+    return;
+  }
+  // タップ判定（移動が小さい場合のみ選択）
+  if (downPos && Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) < 8) {
+    const hit = pickBox(e);
+    selectedBoxId = hit ? hit.object.userData.boxId : null;
+    applySelection();
+  }
+  downPos = null;
+}
+
+function scheduleBoxSave() {
+  if (!dirty3d) return;
+  $('save-pill').style.display = 'block';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    dirty3d = false;
+    try {
+      await api('saveBoxes', { boxes: state.boxes });
+      cacheSave();
+      $('save-pill').style.display = 'none';
+      toast('配置を保存しました');
+    } catch (e) {
+      $('save-pill').style.display = 'none';
+      toast('配置の保存に失敗しました');
+    }
+  }, 1200);
+}
+
+function focusProduct(code) {
+  switchTab('3d');
+  const b = state.boxes.find(x => x.productCode === code);
+  if (!b) { toast('この商品は3D未配置です'); return; }
+  selectedBoxId = b.id;
+  applySelection();
+  const c = boxCenter(b);
+  const from = controls.target.clone();
+  let t = 0;
+  const step = () => {
+    t += 0.06;
+    controls.target.lerpVectors(from, c, Math.min(t, 1));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  step();
+}
+
+function resize3d() {
+  if (!renderer) return;
+  const wrap = $('cv-wrap');
+  const w = wrap.offsetWidth, h = wrap.offsetHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera3.aspect = w / h;
+  camera3.updateProjectionMatrix();
+}
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera3);
+}
+
+/* ═══════════════ 在庫一覧 ═══════════════ */
+function productRowHtml(p, extra) {
+  const placed = state.boxes.some(b => b.productCode === p.code);
+  return `
+  <div class="row" onclick="${extra || `openProductDetail('${escq(p.code)}')`}">
+    <div class="swatch" style="background:${p.color}"></div>
+    <div class="meta">
+      <div class="nm">${esc(p.name)}</div>
+      <div class="cd">${esc(p.code)}</div>
+    </div>
+    ${placed ? '<div class="badge-3d">3D</div>' : ''}
+    <div class="num"><b>${p.stock}</b><span>${esc(p.unit || '個')}</span></div>
+    <div class="chev">›</div>
+  </div>`;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escq(s) { return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+function filterProducts(q) {
+  q = (q || '').trim().toLowerCase();
+  if (!q) return state.products;
+  return state.products.filter(p =>
+    (p.name || '').toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q));
+}
+
+function renderList() {
+  const list = filterProducts($('list-search').value);
+  $('list-count-label').textContent = `商品（${list.length}件）`;
+  $('list-el').innerHTML = list.map(p => productRowHtml(p)).join('') ||
+    '<div style="padding:26px; text-align:center; color:var(--t2); font-size:13px;">商品がありません。CSVインポートから登録してください。</div>';
+}
+function renderSideList() {
+  const list = filterProducts($('side-search').value);
+  $('side-list').innerHTML = list.map(p => productRowHtml(p, `focusProduct('${escq(p.code)}')`)).join('');
+}
+function openProductDetail(code) { focusProduct(code); }
+
+/* ═══════════════ CSVインポート ═══════════════ */
+async function importCsv(file) {
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  let text;
+  try { text = new TextDecoder('shift_jis', { fatal: true }).decode(buf); }
+  catch (e) { text = new TextDecoder('utf-8').decode(buf); }
+  const rows = parseCsv(text);
+  if (!rows.length) { toast('CSVを読み込めませんでした'); return; }
+  const head = rows[0];
+  const iName = head.indexOf('商品名');
+  const iCode = head.indexOf('商品コード');
+  const iStock = head.findIndex(h => h.startsWith('在庫数'));
+  if (iName < 0 || iCode < 0 || iStock < 0) { toast('列（商品名・商品コード・在庫数）が見つかりません'); return; }
+  const existing = new Set(state.products.map(p => p.code));
+  let ci = state.products.length;
+  const list = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[iCode]) continue;
+    const code = r[iCode].trim();
+    list.push({
+      code,
+      name: (r[iName] || '').trim(),
+      stock: Number(r[iStock]) || 0,
+      color: existing.has(code) ? undefined : PALETTE[(ci++) % PALETTE.length],
+      unit: '個',
+    });
+  }
+  toast('取込中…（' + list.length + '件）', 5000);
+  const res = await api('importProducts', { products: list });
+  if (res.products) {
+    state.products = res.products;
+    state.products.forEach(p => p.stock = Number(p.stock) || 0);
+  }
+  cacheSave();
+  renderAll();
+  toast(`取込完了：新規${res.added ?? '-'}件 / 更新${res.updated ?? '-'}件`);
+  $('csv-file').value = '';
+}
+
+function parseCsv(text) {
+  const rows = []; let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(cur); cur = '';
+        if (row.some(v => v !== '')) rows.push(row);
+        row = [];
+      } else cur += c;
+    }
+  }
+  row.push(cur);
+  if (row.some(v => v !== '')) rows.push(row);
+  return rows;
+}
+
+/* ═══════════════ 商品編集 ═══════════════ */
+let editing = null; // { originalCode, boxes:[…] }
+function openProductEdit(code) {
+  const p = code ? prod(code) : null;
+  editing = {
+    originalCode: code,
+    boxes: state.boxes.filter(b => b.productCode === code).map(b => ({ ...b })),
+  };
+  $('pe-title').textContent = p ? '商品を編集' : '商品を追加';
+  $('pe-name').value = p ? p.name : '';
+  $('pe-code').value = p ? p.code : '';
+  $('pe-unit').value = p ? (p.unit || '個') : '個';
+  $('pe-stock').value = p ? p.stock : 0;
+  $('pe-delete').style.display = p ? 'block' : 'none';
+  const sel = p ? p.color : PALETTE[state.products.length % PALETTE.length];
+  $('pe-swatches').innerHTML = PALETTE.map(c =>
+    `<button class="sw ${c === sel ? 'sel' : ''}" style="background:${c}" data-c="${c}" onclick="selSwatch(this)"></button>`).join('');
+  renderEditBoxes();
+  openSheet('sheet-product');
+}
+function selSwatch(el) {
+  document.querySelectorAll('#pe-swatches .sw').forEach(s => s.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function renderEditBoxes() {
+  $('pe-boxes').innerHTML = editing.boxes.map((b, i) => `
+    <div class="box-edit">
+      <div class="be-head"><div class="t">箱 ${i + 1}</div><button class="rm" onclick="editing.boxes.splice(${i},1);renderEditBoxes()">削除</button></div>
+      <div class="grid">
+        ${['x','y','z','w','d','h'].map(k => `
+          <div class="cell"><label>${{x:'X位置',y:'高さ位置',z:'Z位置',w:'幅',d:'奥行',h:'高さ'}[k]}</label>
+          <input type="number" inputmode="numeric" value="${b[k]}" onchange="editing.boxes[${i}].${k}=Number(this.value)||0"></div>`).join('')}
+      </div>
+    </div>`).join('') || '<div class="f-hint" style="margin-bottom:9px;">3Dに表示する箱がありません</div>';
+}
+function addBoxToEditing() {
+  editing.boxes.push({ id: 'B' + Date.now().toString(36) + editing.boxes.length, productCode: '', x: 100, y: 0, z: 100, w: 600, h: 400, d: 400 });
+  renderEditBoxes();
+}
+async function saveProductEdit() {
+  const code = $('pe-code').value.trim();
+  const name = $('pe-name').value.trim();
+  if (!code || !name) { toast('商品名とコードを入力してください'); return; }
+  const color = document.querySelector('#pe-swatches .sw.sel')?.dataset.c || PALETTE[0];
+  const p = {
+    code, name, color,
+    unit: $('pe-unit').value.trim() || '個',
+    stock: Number($('pe-stock').value) || 0,
+  };
+  editing.boxes.forEach(b => b.productCode = code);
+  state.boxes = state.boxes.filter(b => b.productCode !== (editing.originalCode || code)).concat(editing.boxes);
+  closeAllSheets();
+  toast('保存中…', 4000);
+  await api('saveProduct', { product: p });
+  const i = state.products.findIndex(x => x.code === code);
+  if (i >= 0) state.products[i] = Object.assign(state.products[i], p); else state.products.push(p);
+  await api('saveBoxes', { boxes: state.boxes });
+  cacheSave();
+  renderAll();
+  toast('保存しました');
+}
+async function deleteProductAction() {
+  if (!editing.originalCode) return;
+  if (!confirm('この商品と3D配置を削除しますか？')) return;
+  closeAllSheets();
+  await api('deleteProduct', { code: editing.originalCode });
+  state.products = state.products.filter(p => p.code !== editing.originalCode);
+  state.boxes = state.boxes.filter(b => b.productCode !== editing.originalCode);
+  cacheSave();
+  renderAll();
+  toast('削除しました');
+}
+function editSelectedProduct() {
+  const b = state.boxes.find(x => x.id === selectedBoxId);
+  if (b) openProductEdit(b.productCode);
+}
+
+/* ═══════════════ 商品ピッカー ═══════════════ */
+let pickerCb = null;
+function pickProduct(cb) {
+  pickerCb = cb;
+  $('picker-search').value = '';
+  renderPicker();
+  openSheet('sheet-picker');
+}
+function renderPicker() {
+  const list = filterProducts($('picker-search').value).slice(0, 60);
+  $('picker-list').innerHTML = list.map(p => `
+    <div class="row" onclick="pickerChoose('${escq(p.code)}')">
+      <div class="swatch" style="background:${p.color}"></div>
+      <div class="meta"><div class="nm">${esc(p.name)}</div><div class="cd">${esc(p.code)}</div></div>
+      <div class="num"><b>${p.stock}</b><span>${esc(p.unit || '個')}</span></div>
+    </div>`).join('');
+}
+function pickerChoose(code) {
+  closeAllSheets();
+  if (pickerCb) pickerCb(prod(code));
+  pickerCb = null;
+}
+
+/* ═══════════════ 棚卸 ═══════════════ */
+let camStream = null, scanLoop = null, lastScan = {};
+
+function loadSession() {
+  try { session = JSON.parse(localStorage.getItem(LS.session)); } catch (e) { session = null; }
+  if (session && !session.items) session = null;
+  $('resume-box').style.display = session ? 'block' : 'none';
+}
+function persistSession() {
+  if (session) localStorage.setItem(LS.session, JSON.stringify(session));
+  else localStorage.removeItem(LS.session);
+}
+function startSession() {
+  session = { id: 'S' + Date.now(), startedAt: new Date().toISOString(), scanned: {}, items: [] };
+  persistSession();
+  showLive();
+}
+function resumeSession() { showLive(); }
+function showLive() {
+  $('scan-idle').style.display = 'none';
+  $('scan-live').style.display = 'block';
+  renderTally();
+  startCamera();
+}
+function cancelSession() {
+  if (!confirm('カウント内容を破棄して中断しますか？')) return;
+  session = null;
+  persistSession();
+  stopCamera();
+  $('scan-live').style.display = 'none';
+  $('scan-idle').style.display = 'block';
+  $('resume-box').style.display = 'none';
+}
+
+async function startCamera() {
+  if (camStream) return;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false,
+    });
+    const v = $('cam');
+    v.srcObject = camStream;
+    await v.play();
+    $('cam-off-msg').style.display = 'none';
+    $('cam-toggle').textContent = 'カメラ停止';
+    scanTick();
+  } catch (e) {
+    toast('カメラを起動できません（権限を確認してください）', 3200);
+    $('cam-off-msg').style.display = 'flex';
+  }
+}
+function stopCamera() {
+  if (scanLoop) cancelAnimationFrame(scanLoop);
+  scanLoop = null;
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  $('cam-off-msg').style.display = 'flex';
+  $('cam-toggle').textContent = 'カメラ再開';
+}
+function toggleCamera() { camStream ? stopCamera() : startCamera(); }
+
+const scanCanvas = document.createElement('canvas');
+function scanTick() {
+  scanLoop = requestAnimationFrame(scanTick);
+  const v = $('cam');
+  if (!camStream || v.readyState < 2) return;
+  const w = 480, h = Math.round(480 * v.videoHeight / v.videoWidth) || 360;
+  scanCanvas.width = w; scanCanvas.height = h;
+  const ctx = scanCanvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(v, 0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h);
+  const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+  if (code && code.data) handleScan(code.data.trim());
+}
+
+function handleScan(text) {
+  const now = Date.now();
+  if (lastScan[text] && now - lastScan[text] < 2600) return; // 同一QR連続読み防止
+  lastScan[text] = now;
+
+  const parts = text.split('|');
+  if (parts[0] !== 'OKD' || parts.length < 4) { toast('対象外のQRコードです'); buzz(false); return; }
+  const [, code, qtyS, labelId] = parts;
+  const qty = Number(qtyS);
+  const p = prod(code);
+  if (!p) { toast('未登録の商品コード: ' + code, 3000); buzz(false); return; }
+  if (session.scanned[labelId]) {
+    toast('⚠ この箱はスキャン済みです（' + p.name + '）', 3000);
+    buzz(false);
+    return;
+  }
+  session.scanned[labelId] = true;
+  session.items.push({ productCode: code, labelId, qty, method: 'scan', name: p.name });
+  persistSession();
+  flash();
+  buzz(true);
+  toast(p.name + ' ＋' + qty + (p.unit || '個'));
+  renderTally();
+}
+
+function flash() {
+  const f = $('cam-flash');
+  f.style.opacity = '0.7';
+  setTimeout(() => f.style.opacity = '0', 130);
+}
+let audioCtx = null;
+function buzz(ok) {
+  try { if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = ok ? 1320 : 260;
+    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.18);
+    o.start(); o.stop(audioCtx.currentTime + 0.19);
+  } catch (e) {}
+}
+
+/* 手入力（バラ用） */
+let manualProduct = null;
+function manualAdd() {
+  pickProduct(p => {
+    manualProduct = p;
+    $('qty-product-label').textContent = p.name;
+    $('qty-input').value = '';
+    openSheet('sheet-qty');
+    setTimeout(() => $('qty-input').focus(), 250);
+  });
+}
+function confirmManualQty() {
+  const q = Number($('qty-input').value);
+  if (!manualProduct || !q || q < 1) { toast('数量を入力してください'); return; }
+  session.items.push({ productCode: manualProduct.code, labelId: '', qty: q, method: 'manual', name: manualProduct.name });
+  persistSession();
+  closeAllSheets();
+  toast(manualProduct.name + ' ＋' + q + (manualProduct.unit || '個'));
+  renderTally();
+}
+
+function tallyTotals() {
+  const t = {};
+  (session?.items || []).forEach(it => t[it.productCode] = (t[it.productCode] || 0) + Number(it.qty));
+  return t;
+}
+function renderTally() {
+  if (!session) return;
+  const totals = tallyTotals();
+  const codes = Object.keys(totals);
+  $('tally-n').textContent = codes.length + '品目 / ' + session.items.length + '件';
+  $('tally-el').innerHTML = codes.map(c => {
+    const p = prod(c) || { name: c, stock: 0, unit: '個' };
+    const diff = totals[c] - (Number(p.stock) || 0);
+    const cls = diff === 0 ? 'zero' : diff > 0 ? 'plus' : 'minus';
+    const dx = diff === 0 ? '±0' : (diff > 0 ? '+' + diff : diff);
+    return `<div class="tally-row">
+      <div class="meta"><div class="nm">${esc(p.name)}</div><div class="cd">${esc(c)}</div></div>
+      <div><span class="cnt">${totals[c]}</span> <span class="vs">/ ${p.stock}</span></div>
+      <div class="diff-chip ${cls}">${dx}</div>
+    </div>`;
+  }).join('') || '<div style="padding:20px; text-align:center; color:var(--t2); font-size:13px;">まだカウントがありません</div>';
+
+  const hist = session.items.slice(-15).reverse();
+  $('hist-el').innerHTML = hist.map((it, ri) => {
+    const idx = session.items.length - 1 - ri;
+    return `<div class="hist-row">
+      <div class="m">${it.method === 'manual' ? '✎' : '⌁'} ${esc(it.name)}</div>
+      <div class="q">＋${it.qty}</div>
+      <button class="del" onclick="removeItem(${idx})">取消</button>
+    </div>`;
+  }).join('') || '<div style="padding:16px; text-align:center; color:var(--t2); font-size:12px;">履歴なし</div>';
+}
+function removeItem(idx) {
+  const it = session.items[idx];
+  if (!it) return;
+  if (it.labelId) delete session.scanned[it.labelId];
+  session.items.splice(idx, 1);
+  persistSession();
+  renderTally();
+  toast('取り消しました');
+}
+
+/* 完了・サマリー */
+function openSummary() {
+  if (!session || !session.items.length) { toast('カウントがありません'); return; }
+  renderSummary();
+  $('sum-include-zero').onchange = renderSummary;
+  openSheet('sheet-summary');
+}
+function summaryRows() {
+  const totals = tallyTotals();
+  const includeZero = $('sum-include-zero').checked;
+  const rows = [];
+  state.products.forEach(p => {
+    const counted = totals[p.code];
+    if (counted === undefined && !includeZero) return;
+    const real = counted ?? 0;
+    rows.push({ code: p.code, name: p.name, stock: Number(p.stock) || 0, real, diff: real - (Number(p.stock) || 0) });
+  });
+  // マスタに無いコード（念のため）
+  Object.keys(totals).forEach(c => {
+    if (!prod(c)) rows.push({ code: c, name: c, stock: 0, real: totals[c], diff: totals[c] });
+  });
+  return rows;
+}
+function renderSummary() {
+  const rows = summaryRows();
+  $('sum-body').innerHTML = rows.map(r => {
+    const cls = r.diff === 0 ? 'zero' : r.diff > 0 ? 'plus' : 'minus';
+    const dx = r.diff === 0 ? '±0' : (r.diff > 0 ? '+' + r.diff : r.diff);
+    return `<tr><td>${esc(r.name)}</td><td>${r.stock}</td><td><b>${r.real}</b></td><td><span class="diff-chip ${cls}">${dx}</span></td></tr>`;
+  }).join('');
+}
+async function finishSession(withCsv) {
+  const rows = summaryRows();
+  const apply = $('sum-apply').checked;
+  closeAllSheets();
+  toast('保存中…', 5000);
+  try {
+    await api('submitInventory', { sessionId: session.id, items: session.items, apply });
+    if (apply) {
+      const totals = tallyTotals();
+      state.products.forEach(p => { if (totals[p.code] !== undefined) p.stock = totals[p.code]; });
+      cacheSave();
+    }
+    if (withCsv) exportDiffCsv(rows);
+    stopCamera();
+    session = null;
+    persistSession();
+    $('scan-live').style.display = 'none';
+    $('scan-idle').style.display = 'block';
+    $('resume-box').style.display = 'none';
+    renderAll();
+    toast('棚卸を保存しました');
+  } catch (e) {
+    toast('保存に失敗しました（電波状況を確認して再度完了してください）', 3600);
+  }
+}
+function exportDiffCsv(rows) {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const lines = [['商品コード','商品名','理論在庫','実棚数','差異(増減)']];
+  rows.forEach(r => lines.push([r.code, r.name, r.stock, r.real, r.diff]));
+  const csv = '\uFEFF' + lines.map(l => l.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tanaoroshi_sai_${stamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ═══════════════ ラベル ═══════════════ */
+let labelProduct = null;
+function setLabelProduct(p) {
+  labelProduct = p;
+  const btn = $('lb-product-btn');
+  btn.textContent = p.name;
+  btn.style.color = 'var(--t1)';
+}
+async function createLabelsAction() {
+  const qty = Number($('lb-qty').value);
+  const count = Number($('lb-count').value);
+  if (!labelProduct) { toast('商品を選択してください'); return; }
+  if (!qty || qty < 1) { toast('入数を入力してください'); return; }
+  if (!count || count < 1) { toast('枚数を入力してください'); return; }
+  toast('発行中…', 4000);
+  const res = await api('createLabels', { productCode: labelProduct.code, qty, count });
+  if (!res.ok) { toast('発行に失敗しました'); return; }
+  if (gasUrl) state.labels = state.labels.concat(res.labels);
+  cacheSave();
+  renderLabels();
+  printLabels(res.labels);
+}
+
+function renderLabels() {
+  const q = ($('label-search').value || '').trim().toLowerCase();
+  const list = state.labels.filter(l => {
+    const p = prod(l.productCode);
+    if (!q) return true;
+    return (p?.name || '').toLowerCase().includes(q) || l.productCode.toLowerCase().includes(q);
+  });
+  $('labels-el').innerHTML = list.slice().reverse().map(l => {
+    const p = prod(l.productCode) || { name: l.productCode };
+    return `<div class="label-card">
+      <input type="checkbox" data-label="${esc(l.labelId)}">
+      <div class="meta">
+        <div class="nm">${esc(p.name)}</div>
+        <div class="sub">入数 ${l.qty}${esc(p.unit || '個')}　${esc(l.labelId)}</div>
+      </div>
+      <button class="void" onclick="voidLabel('${escq(l.labelId)}')">無効化</button>
+    </div>`;
+  }).join('') || '<div style="padding:20px; text-align:center; color:var(--t2); font-size:13px;">発行済みラベルはありません</div>';
+}
+async function voidLabel(labelId) {
+  if (!confirm('このラベルを無効化しますか？（スキャンしても加算されなくなります）')) return;
+  await api('deactivateLabel', { labelId });
+  state.labels = state.labels.filter(l => l.labelId !== labelId);
+  cacheSave();
+  renderLabels();
+  toast('無効化しました');
+}
+function printSelectedLabels() {
+  const ids = Array.from(document.querySelectorAll('#labels-el input:checked')).map(c => c.dataset.label);
+  if (!ids.length) { toast('印刷するラベルを選択してください'); return; }
+  printLabels(state.labels.filter(l => ids.includes(l.labelId)));
+}
+function printLabels(labels) {
+  const grid = $('pl-grid');
+  grid.innerHTML = '';
+  labels.forEach(l => {
+    const p = prod(l.productCode) || { name: l.productCode, unit: '個' };
+    const cell = document.createElement('div');
+    cell.className = 'pl';
+    cell.innerHTML = `
+      <div class="qr"></div>
+      <div class="tx">
+        <div class="n">${esc(p.name)}</div>
+        <div class="c">${esc(l.productCode)}</div>
+        <div class="q">入数 ${l.qty}${esc(p.unit || '個')}</div>
+        <div class="id">${esc(l.labelId)}</div>
+      </div>`;
+    grid.appendChild(cell);
+    new QRCode(cell.querySelector('.qr'), {
+      text: `OKD|${l.productCode}|${l.qty}|${l.labelId}`,
+      width: 220, height: 220,
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  });
+  setTimeout(() => window.print(), 400);
+}
+
+/* ═══════════════ 設定 ═══════════════ */
+function openSettings() {
+  $('st-url').value = gasUrl;
+  const R = roomDims();
+  $('st-w').value = R.w; $('st-d').value = R.d; $('st-h').value = R.h;
+  openSheet('sheet-settings');
+}
+async function saveSettings() {
+  gasUrl = $('st-url').value.trim();
+  localStorage.setItem(LS.url, gasUrl);
+  const cfg = {
+    roomW: Number($('st-w').value) || 6000,
+    roomD: Number($('st-d').value) || 6000,
+    roomH: Number($('st-h').value) || 2500,
+  };
+  state.config = Object.assign(state.config || {}, cfg);
+  closeAllSheets();
+  if (gasUrl) {
+    await api('saveConfig', { config: cfg }).catch(() => {});
+    await reloadData();
+  } else {
+    cacheSave();
+    setConn(false, '未接続');
+    renderAll();
+  }
+  buildRoom();
+  resetCamera();
+  rebuildBoxes();
+}
+
+/* ═══════════════ 起動 ═══════════════ */
+function renderAll() {
+  renderList();
+  renderSideList();
+  renderLabels();
+  buildRoom();
+  rebuildBoxes();
+}
+cacheLoad();
+loadSession();
+init3d();
+renderAll();
+if (gasUrl) reloadData(); else setConn(false, '未接続（端末内）');
+</script>
+</body>
+</html>
