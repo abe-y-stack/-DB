@@ -530,7 +530,7 @@ input, select { font-family: inherit; font-size: 16px; }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 'use strict';
@@ -1217,17 +1217,26 @@ function stopCamera() {
 function toggleCamera() { camStream ? stopCamera() : startCamera(); }
 
 const scanCanvas = document.createElement('canvas');
+let jsQrMissingWarned = false;
 function scanTick() {
   scanLoop = requestAnimationFrame(scanTick);
   const v = $('cam');
   if (!camStream || v.readyState < 2) return;
-  const w = 480, h = Math.round(480 * v.videoHeight / v.videoWidth) || 360;
-  scanCanvas.width = w; scanCanvas.height = h;
-  const ctx = scanCanvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(v, 0, 0, w, h);
-  const img = ctx.getImageData(0, 0, w, h);
-  const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
-  if (code && code.data) handleScan(code.data.trim());
+  if (typeof jsQR !== 'function') {
+    if (!jsQrMissingWarned) { jsQrMissingWarned = true; toast('QR読取ライブラリの読込に失敗しました。通信環境を確認して再読込してください', 4000); }
+    return;
+  }
+  try {
+    const w = 480, h = Math.round(480 * v.videoHeight / v.videoWidth) || 360;
+    scanCanvas.width = w; scanCanvas.height = h;
+    const ctx = scanCanvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+    if (code && code.data) handleScan(code.data.trim());
+  } catch (err) {
+    console.error('scan error', err);
+  }
 }
 
 function handleScan(text) {
