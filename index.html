@@ -924,7 +924,7 @@ function productRowHtml(p, extra) {
       <div class="nm">${esc(p.name)}</div>
       <div class="cd">${esc(p.code)}</div>
     </div>
-    ${placed ? '<div class="badge-3d">3D</div>' : ''}
+    ${placed ? `<div class="badge-3d" onclick="event.stopPropagation();focusProduct('${escq(p.code)}')">3D</div>` : ''}
     <div class="num"><b>${p.stock}</b><span>${esc(p.unit || '個')}</span></div>
     <div class="chev">›</div>
   </div>`;
@@ -949,7 +949,7 @@ function renderSideList() {
   const list = filterProducts($('side-search').value);
   $('side-list').innerHTML = list.map(p => productRowHtml(p, `focusProduct('${escq(p.code)}')`)).join('');
 }
-function openProductDetail(code) { focusProduct(code); }
+function openProductDetail(code) { openProductEdit(code); }
 
 /* ═══════════════ CSVインポート ═══════════════ */
 async function importCsv(file) {
