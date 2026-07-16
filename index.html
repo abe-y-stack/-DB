@@ -481,8 +481,21 @@ input, select { font-family: inherit; font-size: 16px; }
 <div class="sheet" id="sheet-qty">
   <div class="handle"></div>
   <h2>数量を入力</h2>
-  <div class="f-group"><div class="f-label" id="qty-product-label">商品</div>
-    <input class="f-input" id="qty-input" type="number" inputmode="numeric" min="1" placeholder="数量">
+  <div class="f-label" id="qty-product-label" style="margin-bottom:8px;">商品</div>
+  <div style="text-align:center; margin:6px 0 12px;">
+    <span id="qty-total" style="font-size:40px; font-weight:800;">0</span>
+    <span style="font-size:13px; color:var(--t2);" id="qty-unit">個</span>
+  </div>
+  <div class="f-group">
+    <input class="f-input" id="qty-input" type="text" inputmode="text" placeholder="数 または 式（例: 9*8+3、17+15+3）" oninput="updateQtyTotal()" style="text-align:center; font-size:17px;">
+    <div class="f-hint">列×段＋端数など、数えた通りに式で入力できます（+ − × ÷ 対応）</div>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:16px;">
+    <button class="pill ghost" style="padding:12px 0;" onclick="qtyBump(1)">+1</button>
+    <button class="pill ghost" style="padding:12px 0;" onclick="qtyBump(5)">+5</button>
+    <button class="pill ghost" style="padding:12px 0;" onclick="qtyBump(10)">+10</button>
+    <button class="pill ghost" style="padding:12px 0;" onclick="qtyBump(100)">+100</button>
+    <button class="pill ghost" style="padding:12px 0;" onclick="qtyClear()">C</button>
   </div>
   <button class="pill full" onclick="confirmManualQty()">カウントに追加</button>
 </div>
@@ -1283,21 +1296,53 @@ function buzz(ok) {
   } catch (e) {}
 }
 
-/* 手入力（バラ用） */
+/* 手入力（バラ用）: 式入力＋タリーカウンター */
 let manualProduct = null;
 function manualAdd() {
   pickProduct(p => {
     manualProduct = p;
     $('qty-product-label').textContent = p.name;
+    $('qty-unit').textContent = p.unit || '個';
     $('qty-input').value = '';
+    updateQtyTotal();
     openSheet('sheet-qty');
-    setTimeout(() => $('qty-input').focus(), 250);
   });
 }
+/* 数式の安全評価（数字と + - * / ( ) . のみ許可） */
+function evalQty(exp) {
+  if (!exp) return 0;
+  exp = String(exp)
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/×/g, '*').replace(/÷/g, '/').replace(/[＋]/g, '+').replace(/[－ー]/g, '-')
+    .replace(/[（]/g, '(').replace(/[）]/g, ')')
+    .replace(/\s/g, '');
+  if (!/^[0-9+\-*/().]+$/.test(exp)) return NaN;
+  try {
+    const v = Function('"use strict";return(' + exp + ')')();
+    return (typeof v === 'number' && isFinite(v)) ? v : NaN;
+  } catch (e) { return NaN; }
+}
+function updateQtyTotal() {
+  const v = evalQty($('qty-input').value);
+  const el = $('qty-total');
+  el.textContent = isNaN(v) ? '—' : Math.round(v);
+  el.style.color = isNaN(v) ? 'var(--bad)' : 'var(--t1)';
+}
+function qtyBump(n) {
+  const cur = $('qty-input').value.trim();
+  $('qty-input').value = cur ? cur + '+' + n : String(n);
+  updateQtyTotal();
+  try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) {}
+}
+function qtyClear() {
+  $('qty-input').value = '';
+  updateQtyTotal();
+}
 function confirmManualQty() {
-  const q = Number($('qty-input').value);
-  if (!manualProduct || !q || q < 1) { toast('数量を入力してください'); return; }
-  session.items.push({ productCode: manualProduct.code, labelId: '', qty: q, method: 'manual', name: manualProduct.name });
+  const raw = $('qty-input').value;
+  const q = Math.round(evalQty(raw));
+  if (!manualProduct || isNaN(q) || q < 1) { toast('数量または式を確認してください'); return; }
+  session.items.push({ productCode: manualProduct.code, labelId: '', qty: q, method: 'manual', name: manualProduct.name, note: raw.trim() });
   persistSession();
   closeAllSheets();
   toast(manualProduct.name + ' ＋' + q + (manualProduct.unit || '個'));
@@ -1329,8 +1374,9 @@ function renderTally() {
   const hist = session.items.slice(-15).reverse();
   $('hist-el').innerHTML = hist.map((it, ri) => {
     const idx = session.items.length - 1 - ri;
+    const note = it.note && it.note !== String(it.qty) ? ` <span style="color:var(--t3)">(${esc(it.note)})</span>` : '';
     return `<div class="hist-row">
-      <div class="m">${it.method === 'manual' ? '✎' : '⌁'} ${esc(it.name)}</div>
+      <div class="m">${it.method === 'manual' ? '✎' : '⌁'} ${esc(it.name)}${note}</div>
       <div class="q">＋${it.qty}</div>
       <button class="del" onclick="removeItem(${idx})">取消</button>
     </div>`;
@@ -1383,7 +1429,11 @@ async function finishSession(withCsv) {
   closeAllSheets();
   toast('保存中…', 5000);
   try {
-    await api('submitInventory', { sessionId: session.id, items: session.items, apply });
+    const sendItems = session.items.map(it => ({
+      productCode: it.productCode, labelId: it.labelId, qty: it.qty,
+      method: it.method + (it.note && it.note !== String(it.qty) ? '(' + it.note + ')' : ''),
+    }));
+    await api('submitInventory', { sessionId: session.id, items: sendItems, apply });
     if (apply) {
       const totals = tallyTotals();
       state.products.forEach(p => { if (totals[p.code] !== undefined) p.stock = totals[p.code]; });
