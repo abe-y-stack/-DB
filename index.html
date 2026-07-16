@@ -191,10 +191,8 @@ input, select { font-family: inherit; font-size: 16px; }
 .sheet h2 { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
 .f-group { margin-bottom: 14px; }
 .f-label { font-size: 11px; font-weight: 700; color: var(--t2); letter-spacing: 0.06em; margin-bottom: 6px; }
-.f-input {
-  width: 100%; border: 1px solid var(--border); border-radius: 11px;
-  padding: 11px 13px; font-size: 15px; background: var(--bg); outline: none;
-}
+.f-input { width: 100%; border: 1px solid var(--border); border-radius: 11px; padding: 11px 13px; font-size: 15px; background: var(--bg); outline: none; }
+textarea.f-input { resize: vertical; font-family: inherit; line-height: 1.5; }
 .f-input:focus { border-color: var(--t1); }
 .f-hint { font-size: 11px; color: var(--t2); margin-top: 5px; line-height: 1.6; }
 .f-row { display: flex; gap: 10px; }
@@ -397,16 +395,44 @@ input, select { font-family: inherit; font-size: 16px; }
         <div class="f-label">商品</div>
         <button class="f-input" style="text-align:left; color:var(--t2);" id="lb-product-btn" onclick="pickProduct(p => setLabelProduct(p))">タップして商品を選択</button>
       </div>
-      <div class="f-row">
-        <div class="f-group">
-          <div class="f-label">入数（1箱あたり）</div>
-          <input class="f-input" id="lb-qty" type="number" inputmode="numeric" min="1" placeholder="20">
-        </div>
-        <div class="f-group">
-          <div class="f-label">枚数（箱の数）</div>
-          <input class="f-input" id="lb-count" type="number" inputmode="numeric" min="1" value="1">
+
+      <div class="f-group">
+        <div class="f-label">発行方法</div>
+        <div style="display:flex; gap:8px;">
+          <button class="pill ghost full" id="lb-mode-uniform" style="background:var(--t1);color:#fff;" onclick="setLabelMode('uniform')">同じ入数で複数箱</button>
+          <button class="pill ghost full" id="lb-mode-custom" onclick="setLabelMode('custom')">箱ごとに数が違う</button>
         </div>
       </div>
+
+      <div id="lb-uniform-fields">
+        <div class="f-row">
+          <div class="f-group">
+            <div class="f-label">入数（1箱あたり）</div>
+            <input class="f-input" id="lb-qty" type="number" inputmode="numeric" min="1" placeholder="20">
+          </div>
+          <div class="f-group">
+            <div class="f-label">枚数（箱の数）</div>
+            <input class="f-input" id="lb-count" type="number" inputmode="numeric" min="1" value="1">
+          </div>
+        </div>
+      </div>
+
+      <div id="lb-custom-fields" style="display:none;">
+        <div class="f-group">
+          <div class="f-label">合計から自動割付（任意）</div>
+          <div class="f-row">
+            <input class="f-input" id="lb-total" type="number" inputmode="numeric" placeholder="合計 例:62">
+            <input class="f-input" id="lb-std" type="number" inputmode="numeric" placeholder="標準入数 例:20">
+          </div>
+          <button class="pill ghost full" style="margin-top:8px;" onclick="autoSplitLabels()">下欄に割り付ける</button>
+        </div>
+        <div class="f-group">
+          <div class="f-label">箱ごとの入数（カンマまたは改行区切り）</div>
+          <textarea class="f-input" id="lb-list" rows="3" placeholder="例：20,20,20,2　（1行=1箱でもOK）" oninput="renderLbPreview()"></textarea>
+          <div class="f-hint" id="lb-preview"></div>
+        </div>
+      </div>
+
       <button class="pill full" onclick="createLabelsAction()">発行して印刷プレビュー</button>
       <div class="f-hint">スキャン1回で入数分が加算されます。ラベル1枚ごとに固有IDが付くため、同じ箱の二重スキャンは自動で弾かれます。</div>
     </div>
@@ -611,10 +637,10 @@ function localApi(action, p) {
     case 'createLabels': {
       const base = Date.now().toString(36).toUpperCase();
       const created = [];
-      for (let i = 0; i < p.count; i++) {
-        const l = { labelId: 'L' + base + '-' + (i + 1), productCode: p.productCode, qty: p.qty, active: true };
+      p.qtyList.forEach((qty, i) => {
+        const l = { labelId: 'L' + base + '-' + (i + 1), productCode: p.productCode, qty, active: true };
         state.labels.push(l); created.push(l);
-      }
+      });
       cacheSave();
       return Promise.resolve({ ok: true, labels: created });
     }
@@ -1469,20 +1495,62 @@ function exportDiffCsv(rows) {
 
 /* ═══════════════ ラベル ═══════════════ */
 let labelProduct = null;
+let labelMode = 'uniform'; // 'uniform' | 'custom'
 function setLabelProduct(p) {
   labelProduct = p;
   const btn = $('lb-product-btn');
   btn.textContent = p.name;
   btn.style.color = 'var(--t1)';
 }
+function setLabelMode(mode) {
+  labelMode = mode;
+  $('lb-mode-uniform').style.background = mode === 'uniform' ? 'var(--t1)' : '';
+  $('lb-mode-uniform').style.color = mode === 'uniform' ? '#fff' : '';
+  $('lb-mode-custom').style.background = mode === 'custom' ? 'var(--t1)' : '';
+  $('lb-mode-custom').style.color = mode === 'custom' ? '#fff' : '';
+  $('lb-uniform-fields').style.display = mode === 'uniform' ? 'block' : 'none';
+  $('lb-custom-fields').style.display = mode === 'custom' ? 'block' : 'none';
+}
+function parseQtyList(text) {
+  return (text || '')
+    .split(/[,、\n]/)
+    .map(s => s.trim())
+    .filter(s => s !== '')
+    .map(s => Number(s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))))
+    .filter(n => Number.isFinite(n) && n > 0);
+}
+function renderLbPreview() {
+  const list = parseQtyList($('lb-list').value);
+  if (!list.length) { $('lb-preview').textContent = ''; return; }
+  const total = list.reduce((a, b) => a + b, 0);
+  $('lb-preview').textContent = `${list.length}箱・合計 ${total} → [${list.join(', ')}]`;
+}
+function autoSplitLabels() {
+  const total = Number($('lb-total').value);
+  const std = Number($('lb-std').value);
+  if (!total || !std || std < 1) { toast('合計と標準入数を入力してください'); return; }
+  const full = Math.floor(total / std);
+  const rem = total - full * std;
+  const list = Array(full).fill(std);
+  if (rem > 0) list.push(rem);
+  $('lb-list').value = list.join(',');
+  renderLbPreview();
+}
 async function createLabelsAction() {
-  const qty = Number($('lb-qty').value);
-  const count = Number($('lb-count').value);
   if (!labelProduct) { toast('商品を選択してください'); return; }
-  if (!qty || qty < 1) { toast('入数を入力してください'); return; }
-  if (!count || count < 1) { toast('枚数を入力してください'); return; }
+  let qtyList;
+  if (labelMode === 'uniform') {
+    const qty = Number($('lb-qty').value);
+    const count = Number($('lb-count').value);
+    if (!qty || qty < 1) { toast('入数を入力してください'); return; }
+    if (!count || count < 1) { toast('枚数を入力してください'); return; }
+    qtyList = Array(count).fill(qty);
+  } else {
+    qtyList = parseQtyList($('lb-list').value);
+    if (!qtyList.length) { toast('箱ごとの入数を入力してください'); return; }
+  }
   toast('発行中…', 4000);
-  const res = await api('createLabels', { productCode: labelProduct.code, qty, count });
+  const res = await api('createLabels', { productCode: labelProduct.code, qtyList });
   if (!res.ok) { toast('発行に失敗しました'); return; }
   if (gasUrl) state.labels = state.labels.concat(res.labels);
   cacheSave();
