@@ -59,7 +59,8 @@ input, select { font-family: inherit; font-size: 16px; }
 }
 .panel.active { display: block; }
 #panel-3d { overflow: hidden; }
-#cv-wrap { position: absolute; inset: 0; }
+#cv-wrap { position: absolute; inset: 0; transition: box-shadow 0.1s; }
+#cv-wrap.snap-x, #cv-wrap.snap-z { box-shadow: inset 0 0 0 2px rgba(17,17,17,0.18); }
 #cv { width: 100%; height: 100%; display: block; touch-action: none; }
 
 /* 3D info card */
@@ -842,16 +843,56 @@ function onPointerMove(e) {
   pt.sub(dragOffset);
   const b = state.boxes.find(x => x.id === selectedBoxId);
   const R = roomDims();
-  b.x = Math.round(Math.min(Math.max((pt.x * 1000) + R.w / 2 - b.w / 2, 0), R.w - b.w));
-  b.z = Math.round(Math.min(Math.max((pt.z * 1000) + R.d / 2 - b.d / 2, 0), R.d - b.d));
+  let nx = (pt.x * 1000) + R.w / 2 - b.w / 2;
+  let nz = (pt.z * 1000) + R.d / 2 - b.d / 2;
+  const snapped = snapPosition(b, nx, nz);
+  nx = snapped.x; nz = snapped.z;
+  b.x = Math.round(Math.min(Math.max(nx, 0), R.w - b.w));
+  b.z = Math.round(Math.min(Math.max(nz, 0), R.d - b.d));
   const mesh = boxMeshes.find(m => m.userData.boxId === b.id);
   if (mesh) mesh.position.copy(boxCenter(b));
+  showSnapGuides(snapped.linesX, snapped.linesZ);
   dirty3d = true;
+}
+
+/* グリッド吸着（100mm刻み）＋ 他の箱の辺への吸着 */
+const GRID_STEP = 100;
+const SNAP_TOL = 60; // mm
+function snapPosition(b, rawX, rawZ) {
+  const others = state.boxes.filter(o => o.id !== b.id);
+  const res = snapAxis(rawX, b.w, others.map(o => ({ start: o.x, end: o.x + o.w })));
+  const resZ = snapAxis(rawZ, b.d, others.map(o => ({ start: o.z, end: o.z + o.d })));
+  return { x: res.value, z: resZ.value, linesX: res.snapped, linesZ: resZ.snapped };
+}
+function snapAxis(raw, size, edges) {
+  let best = null, bestDist = SNAP_TOL;
+  // 箱の辺(開始・終了)を他の箱の辺に揃える候補
+  edges.forEach(e => {
+    [
+      { cand: e.start, offset: 0 },        // 自分の開始 = 相手の開始
+      { cand: e.end, offset: 0 },          // 自分の開始 = 相手の終了
+      { cand: e.start - size, offset: 0 }, // 自分の終了 = 相手の開始
+      { cand: e.end - size, offset: 0 },   // 自分の終了 = 相手の終了
+    ].forEach(c => {
+      const d = Math.abs(raw - c.cand);
+      if (d < bestDist) { bestDist = d; best = c.cand; }
+    });
+  });
+  // グリッド吸着（辺スナップが無ければグリッドへ）
+  const gridCand = Math.round(raw / GRID_STEP) * GRID_STEP;
+  const gridDist = Math.abs(raw - gridCand);
+  if (best === null && gridDist < SNAP_TOL) { best = gridCand; bestDist = gridDist; }
+  return { value: best !== null ? best : raw, snapped: best !== null };
+}
+function showSnapGuides(sx, sz) {
+  $('cv-wrap').classList.toggle('snap-x', !!sx);
+  $('cv-wrap').classList.toggle('snap-z', !!sz);
 }
 function onPointerUp(e) {
   if (dragging) {
     dragging = false;
     controls.enabled = true;
+    showSnapGuides(false, false);
     scheduleBoxSave();
     return;
   }
